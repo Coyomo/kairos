@@ -1,0 +1,183 @@
+import random
+import time
+import sys
+import os
+
+TIME_LIMIT = 75          # seconds per problem
+GAP_BETWEEN = 3          # seconds between problems after a timeout
+DIVIDEND_RANGE = (10001, 99999)
+DIVISOR_RANGE = (51, 99)
+
+IS_WINDOWS = os.name == "nt"
+
+if IS_WINDOWS:
+    import msvcrt
+else:
+    import termios
+    import tty
+    import select
+
+
+def get_char_nonblocking(timeout=0.05):
+    """
+    Return a single character if one was pressed within `timeout` seconds,
+    otherwise return None.
+    """
+    if IS_WINDOWS:
+        # Windows: use msvcrt
+        end_time = time.time() + timeout
+        while time.time() < end_time:
+            if msvcrt.kbhit():
+                return msvcrt.getwch()
+            time.sleep(0.01)
+        return None
+    else:
+        # POSIX (Mac/Linux): use select + noncanonical mode
+        rlist, _, _ = select.select([sys.stdin], [], [], timeout)
+        if rlist:
+            return sys.stdin.read(1)
+        return None
+
+
+def timed_input(prompt, question_start, time_limit):
+    """
+    Read user input with a hard time limit.
+
+    - Shows 15s and 5s warnings (based on TOTAL time since question_start).
+    - Reprints the current prompt after each warning.
+    - Returns (text, elapsed, timed_out).
+      - text is None if timed out.
+    """
+    buf = []
+    warned_15 = False
+    warned_5 = False
+
+    # POSIX: switch to cbreak mode so we can read char-by-char
+    if not IS_WINDOWS:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+    else:
+        fd = None
+        old_settings = None
+
+    try:
+        print(prompt, end="", flush=True)
+
+        while True:
+            now = time.time()
+            elapsed = now - question_start
+            remaining = time_limit - elapsed
+
+            # Hard timeout
+            if remaining <= 0:
+                print("\n⏳ Time is up!")
+                return None, elapsed, True
+
+            # 15-second warning
+            if not warned_15 and remaining <= 15:
+                print("\n⚠ 15 seconds remaining!")
+                print(prompt + "".join(buf), end="", flush=True)
+                warned_15 = True
+
+            # 5-second warning
+            if not warned_5 and remaining <= 5:
+                print("\n⚠ 5 seconds remaining!")
+                print(prompt + "".join(buf), end="", flush=True)
+                warned_5 = True
+
+            ch = get_char_nonblocking(timeout=0.05)
+            if ch is None:
+                continue
+
+            # Handle Enter
+            if ch in ("\r", "\n"):
+                print()  # move to the next line for neatness
+                text = "".join(buf)
+                return text, elapsed, False
+
+            # Handle backspace
+            if ch == "\b" or ord(ch) == 127:  # 127 for POSIX backspace
+                if buf:
+                    buf.pop()
+                    # visually erase last character
+                    print("\b \b", end="", flush=True)
+                continue
+
+            # Normal character
+            buf.append(ch)
+            print(ch, end="", flush=True)
+
+    finally:
+        # Restore terminal settings on POSIX
+        if not IS_WINDOWS and old_settings is not None:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+print("Division Practice Problems")
+print("Type 'q' at any time to quit.\n")
+
+while True:
+    # Generate random numbers
+    dividend = random.randint(*DIVIDEND_RANGE)
+    divisor = random.randint(*DIVISOR_RANGE)
+
+    correct_q = dividend // divisor
+    correct_r = dividend % divisor
+
+    print("\n" + "=" * 50)
+    print(f" NEW PROBLEM — You have {TIME_LIMIT} seconds total!")
+    print("=" * 50)
+    print(f"Divide: {dividend} ÷ {divisor}")
+
+    question_start = time.time()
+
+    # ---- QUOTIENT INPUT ----
+    q_text, elapsed, timed_out = timed_input("Enter quotient: ", question_start, TIME_LIMIT)
+
+    if q_text is not None and q_text.lower() == "q":
+        print("Exiting...")
+        break
+
+    if timed_out or q_text is None:
+        # Timed out before finishing quotient
+        print(f"   Correct quotient:  {correct_q}")
+        print(f"   Correct remainder: {correct_r}")
+        print(f"\nStarting next problem in {GAP_BETWEEN} seconds...\n")
+        time.sleep(GAP_BETWEEN)
+        continue
+
+    # ---- REMAINDER INPUT ----
+    r_text, elapsed, timed_out = timed_input("Enter remainder: ", question_start, TIME_LIMIT)
+
+    if r_text is not None and r_text.lower() == "q":
+        print("Exiting...")
+        break
+
+    if timed_out or r_text is None:
+        # Timed out during remainder
+        print(f"   Correct quotient:  {correct_q}")
+        print(f"   Correct remainder: {correct_r}")
+        print(f"\nStarting next problem in {GAP_BETWEEN} seconds...\n")
+        time.sleep(GAP_BETWEEN)
+        continue
+
+    # Got both answers within the time limit
+    total_elapsed = elapsed
+
+    if not (q_text.isdigit() and r_text.isdigit()):
+        print("\n❌ Invalid input — please enter numbers only.")
+        print(f"⏱ Time used: {total_elapsed:.1f}s (limit: {TIME_LIMIT}s)\n")
+        continue
+
+    user_q = int(q_text)
+    user_r = int(r_text)
+
+    print(f"\n⏱ Time used: {total_elapsed:.1f}s (limit: {TIME_LIMIT}s)")
+
+    if user_q == correct_q and user_r == correct_r:
+        print("✅ Correct and on time!\n")
+    else:
+        print("❌ Incorrect (but within the time).")
+        print(f"   Correct quotient:  {correct_q}")
+        print(f"   Correct remainder: {correct_r}\n")
